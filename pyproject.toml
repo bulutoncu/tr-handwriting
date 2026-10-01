@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trhw"
+version = "0.1.0"
+description = "Turkish handwriting recognition: read base letter shapes, restore Turkish marks from context"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.26",
+  "pillow>=10",
+  "opencv-python-headless>=4.8",
+  "fonttools>=4.40",
+  "tqdm>=4.60",
+]
+
+[project.optional-dependencies]
+corpus = ["datasets>=2.18"]
+train = ["torch>=2.2", "transformers>=4.40", "datasets>=2.18", "accelerate>=0.28"]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
