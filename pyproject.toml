@@ -17,7 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 corpus = ["datasets>=2.18"]
-train = ["torch>=2.2", "transformers>=4.40", "datasets>=2.18", "accelerate>=0.28"]
+train = ["torch>=2.4", "transformers>=4.46", "torchvision>=0.19", "sentencepiece>=0.2", "protobuf>=4"]
 dev = ["pytest>=8"]
 
 [tool.setuptools.packages.find]

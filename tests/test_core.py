@@ -144,3 +144,16 @@ def test_damage_functions_keep_shape():
     assert cleaned.shape == img.shape
     assert cleaned[7, 37] > 200 and cleaned[30, 40] < 50  # dot gone, letter kept
     assert erase_patches(img, random.Random(0)).shape == img.shape
+
+
+# --- recognizer -------------------------------------------------------------
+
+def test_collate_pads_labels_with_ignore_index():
+    torch = pytest.importorskip("torch")
+    from trhw.recognizer import collate
+
+    batch = [{"pixel_values": torch.zeros(3, 8, 8), "labels": torch.tensor([0, 5, 2])},
+             {"pixel_values": torch.zeros(3, 8, 8), "labels": torch.tensor([0, 2])}]
+    out = collate(batch)
+    assert out["pixel_values"].shape == (2, 3, 8, 8)
+    assert out["labels"].tolist() == [[0, 5, 2], [0, 2, -100]]
