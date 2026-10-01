@@ -31,7 +31,7 @@ photo ──► line detection ──► base-shape recognizer ──► mark re
 | 1 | Text foundation: Turkish-aware normalization, metrics, corpus pipeline | ✅ |
 | 2 | Mark restorer baselines: lexicon, context backoff model, hybrid | ✅ |
 | 3 | Synthetic handwriting generator (29 fonts, augmentations, damage tools) | ✅ |
-| 4 | Base-shape recognizer: fine-tune TrOCR on synthetic + IAM | ⏳ |
+| 4 | Base-shape recognizer: fine-tune TrOCR on synthetic + IAM | 🔄 synthetic done |
 | 5 | Real handwriting test set (own notes + volunteers) | ⏳ |
 | 6 | Neural restorer (character model / BERTurk) + combining with visual evidence | ⏳ |
 | 7 | Robustness experiment: damaged images, with vs without context | ⏳ |
@@ -41,12 +41,14 @@ photo ──► line detection ──► base-shape recognizer ──► mark re
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[corpus,dev]"
+pip install -e ".[corpus,dev,train]"
 python scripts/download_fonts.py                    # 29 handwriting fonts, 21 with full Turkish
 python scripts/build_corpus.py --max-docs 20000     # Turkish Wikipedia, split by article
 python scripts/train_restorer.py --train data/corpus/sentences_train.txt
 python scripts/eval_restorer.py --test data/corpus/sentences_test.txt
-python scripts/generate_synth.py --lines data/corpus/lines_train.txt --out data/synth/train --n 100000
+python scripts/generate_synth.py --lines data/corpus/lines_train.txt --out data/synth/train --n 50000
+python scripts/train_recognizer.py --train data/synth/train --val data/synth/val --out checkpoints/synth-20k --max-train 20000
+python scripts/eval_recognizer.py --data data/synth/test --models microsoft/trocr-small-handwritten checkpoints/synth-20k/best
 python -m pytest
 ```
 
@@ -127,6 +129,61 @@ Unseen words make up 4.7% of the ambiguous words in the test set.
   mark decisions, so errors compound. End-to-end evaluation comes in the
   later phases.
 
+### Base-shape recognizer (synthetic handwriting)
+
+**Setup:** `microsoft/trocr-small-handwritten` fine-tuned for one epoch on
+20,000 synthetic Turkish lines labelled with base shapes (batch 16, lr 5e-5,
+about 15 minutes on an Apple Silicon laptop). "Full + restorer" pipes the
+recognizer output through the hybrid mark restorer and compares it with the
+real Turkish text.
+
+**Test on fonts seen in training** (1,000 lines, `data/synth/test`):
+
+| Model | Base CER | Full, no marks | Full + restorer | WER + restorer |
+|---|---|---|---|---|
+| TrOCR-small, zero-shot | 13.96% | 19.80% | 15.73% | 69.13% |
+| **TrOCR-small, fine-tuned** | **0.69%** | 9.69% | **1.27%** | **7.16%** |
+
+**Test on fonts never seen in training** (5 fonts held out from training
+data, 1,000 lines):
+
+| Model | Base CER | Full, no marks | Full + restorer | WER + restorer |
+|---|---|---|---|---|
+| TrOCR-small, zero-shot | 14.27% | 19.84% | 15.90% | 69.10% |
+| **TrOCR-small, fine-tuned (without the 5 fonts)** | **2.18%** | 11.09% | **2.96%** | **13.36%** |
+
+Per held-out font:
+
+| Font | Style | Base CER |
+|---|---|---|
+| Kalam | neat print | 0.15% |
+| Handlee | neat print | 0.39% |
+| Architects Daughter | capital-heavy print | 0.86% |
+| Marck Script | connected cursive | 2.41% |
+| Zeyada | messy, irregular | 8.24% |
+
+**Findings**
+
+- **Fine-tuning works, fast.** Fifteen minutes of training removes about 95%
+  of the zero-shot model's errors on seen fonts, and about 85% on unseen ones.
+- **The model partly memorizes fonts.** On held-out fonts the error is about
+  four times higher (0.54% validation vs 2.18%). Results on seen fonts
+  overstate real-world performance.
+- **Neat writing generalizes; messy writing does not (yet).** Unseen print
+  fonts are read almost perfectly, while the messy Zeyada font alone accounts
+  for most of the remaining error. Real hard-to-read handwriting will look more
+  like Zeyada than like Kalam, so this is where the next improvements go:
+  elastic distortion augmentation, real English handwriting (IAM), and real
+  Turkish pages.
+- **Errors compound, mildly.** End-to-end CER is close to the sum of
+  recognizer CER and restorer CER on clean text (~0.4%), plus a small
+  interaction term that grows with recognizer error: about 0.2 points on seen
+  fonts and about 0.4 points on unseen ones. Misread letters make the mark
+  decisions harder.
+- **The restorer works on noisy input.** Even with the zero-shot model's
+  14% error rate, it still repairs about two-thirds of the missing-mark
+  errors.
+
 ## Project layout
 
 ```
@@ -135,6 +192,7 @@ src/trhw/
   metrics.py   CER/WER, alignment, restoration + correction reports
   corpus.py    sentence splitting, filtering, line chunking, leakage-safe splits
   restore.py   mark restorers (identity, lexicon, context, hybrid)
+  recognizer.py  TrOCR dataset, training loop, prediction
   fonts.py     font download + Turkish glyph coverage checks
   synth.py     synthetic handwriting renderer with augmentations
   damage.py    controlled damage (remove marks, erase patches) for robustness tests
